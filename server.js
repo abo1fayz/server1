@@ -1,20 +1,16 @@
-// استدعاء المكتبات
+require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
+app.use(cors());
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 
-// إعدادات Supabase
-const supabaseUrl = "https://ikpijsdqmavklpgunumm.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrcGlqc2RxbWF2a2xwZ3VudW1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNzUzODgsImV4cCI6MjA3MDk1MTM4OH0.uC6t3PgZYOMQuWxFQrFy9aXIR4um0X1Lsf8SkplhZlc";
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-// Middlewares
-app.use(cors());
-app.use(bodyParser.json());
+// تهيئة Supabase
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 // راوت لإرجاع الفيديوهات
 app.get("/videos", async (req, res) => {
@@ -23,85 +19,45 @@ app.get("/videos", async (req, res) => {
       .from("videosa")
       .select("*")
       .order("created_at", { ascending: false });
-
-    if (error) return res.status(500).json({ error: error.message });
-
-    const videos = data.map(video => ({
-      ...video,
-      liked_by: video.liked_by ? JSON.parse(video.liked_by) : []
-    }));
-
-    res.json(videos);
+    if (error) throw error;
+    res.json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Supabase error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// راوت لتحديث الإعجاب
-app.post("/like/:id", async (req, res) => {
-  const videoId = req.params.id;
-  const userId = req.body.userId;
-
-  if (!userId) return res.status(400).json({ error: "Missing userId" });
-
-  try {
-    const { data: videoData, error: fetchError } = await supabase
-      .from("videosa")
-      .select("*")
-      .eq("id", videoId)
-      .single();
-
-    if (fetchError) return res.status(400).json({ error: fetchError.message });
-
-    let likedBy = videoData.liked_by ? JSON.parse(videoData.liked_by) : [];
-    let likesCount = videoData.likes_count || 0;
-
-    if (likedBy.includes(userId)) {
-      likedBy = likedBy.filter(id => id !== userId);
-      likesCount--;
-    } else {
-      likedBy.push(userId);
-      likesCount++;
-    }
-
-    const { error: updateError } = await supabase
-      .from("videosa")
-      .update({ liked_by: JSON.stringify(likedBy), likes_count: likesCount })
-      .eq("id", videoId);
-
-    if (updateError) return res.status(500).json({ error: updateError.message });
-
-    res.json({ likes_count: likesCount, liked_by: likedBy });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal Server Error" });
+// راوت للتحقق من كلمة مرور المدير
+app.post("/admin-login", (req, res) => {
+  const { password } = req.body;
+  if (password === process.env.ADMIN_PASSWORD) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ success: false, message: "كلمة المرور خاطئة" });
   }
 });
 
-// راوت لإضافة رابط فيديو خارجي
+// راوت لإضافة فيديو خارجي (آمن فقط عبر السيرفر)
 app.post("/add-video", async (req, res) => {
-  const { title, url } = req.body;
-  if (!url) return res.status(400).json({ error: "Missing URL" });
-
+  const { password, title, url } = req.body;
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.status(401).json({ success: false, message: "غير مخول" });
+  }
   try {
-    const { error: insertError } = await supabase.from("videosa").insert([{
-      title: title || "بدون عنوان",
+    const { error } = await supabase.from("videosa").insert([{
+      title: title || 'بدون عنوان',
       url,
+      created_at: new Date().toISOString(),
       likes_count: 0,
-      liked_by: JSON.stringify([])
+      liked_by: []
     }]);
-
-    if (insertError) return res.status(500).json({ error: insertError.message });
-
+    if (error) throw error;
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// تشغيل السيرفر
 app.listen(PORT, () => {
-  console.log(`✅ Server is running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
