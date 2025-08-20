@@ -1,22 +1,22 @@
 // استدعاء المكتبات
 const express = require("express");
 const cors = require("cors");
+const bodyParser = require("body-parser");
 const { createClient } = require("@supabase/supabase-js");
-require("dotenv").config(); // إذا كنت تستخدم .env لتخزين المفاتيح
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// إعدادات Supabase
+const supabaseUrl = "https://ikpijsdqmavklpgunumm.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrcGlqc...";
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Middlewares
 app.use(cors());
-app.use(express.json()); // لدعم JSON في POST requests
+app.use(bodyParser.json());
 
-// تهيئة Supabase على السيرفر فقط
-const supabase = createClient(
-  process.env.SUPABASE_URL || "https://ikpijsdqmavklpgunumm.supabase.co",
-  process.env.SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrcGlqc..."
-);
-
-// راوت لإرجاع الفيديوهات فقط (بدون إرسال أي مفاتيح)
+// راوت لإرجاع الفيديوهات
 app.get("/videos", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -24,58 +24,84 @@ app.get("/videos", async (req, res) => {
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) throw error;
+    if (error) return res.status(500).json({ error: error.message });
 
-    res.json(data);
+    const videos = data.map(video => ({
+      ...video,
+      liked_by: video.liked_by ? JSON.parse(video.liked_by) : []
+    }));
+
+    res.json(videos);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// راوت لإضافة فيديو جديد (يتطلب كلمة مرور)
-app.post("/videos", async (req, res) => {
-  const { password, title, url } = req.body;
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ error: "كلمة المرور غير صحيحة" });
-  }
+// راوت لتحديث الإعجاب
+app.post("/like/:id", async (req, res) => {
+  const videoId = req.params.id;
+  const userId = req.body.userId;
+
+  if (!userId) return res.status(400).json({ error: "Missing userId" });
 
   try {
-    const { data, error } = await supabase.from("videosa").insert([
-      {
-        title,
-        url,
-        created_at: new Date().toISOString(),
-        likes_count: 0,
-        liked_by: [],
-      },
-    ]);
+    const { data: videoData, error: fetchError } = await supabase
+      .from("videosa")
+      .select("*")
+      .eq("id", videoId)
+      .single();
 
-    if (error) throw error;
-    res.json({ success: true, video: data[0] });
+    if (fetchError) return res.status(400).json({ error: fetchError.message });
+
+    let likedBy = videoData.liked_by ? JSON.parse(videoData.liked_by) : [];
+    let likesCount = videoData.likes_count || 0;
+
+    if (likedBy.includes(userId)) {
+      likedBy = likedBy.filter(id => id !== userId);
+      likesCount--;
+    } else {
+      likedBy.push(userId);
+      likesCount++;
+    }
+
+    const { error: updateError } = await supabase
+      .from("videosa")
+      .update({ liked_by: JSON.stringify(likedBy), likes_count: likesCount })
+      .eq("id", videoId);
+
+    if (updateError) return res.status(500).json({ error: updateError.message });
+
+    res.json({ likes_count: likesCount, liked_by: likedBy });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// راوت لحذف فيديو (يتطلب كلمة مرور)
-app.delete("/videos/:id", async (req, res) => {
-  const { password } = req.body;
-  const { id } = req.params;
-
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.status(401).json({ error: "كلمة المرور غير صحيحة" });
-  }
+// راوت لإضافة رابط فيديو خارجي
+app.post("/add-video", async (req, res) => {
+  const { title, url } = req.body;
+  if (!url) return res.status(400).json({ error: "Missing URL" });
 
   try {
-    const { error } = await supabase.from("videosa").delete().eq("id", id);
-    if (error) throw error;
+    const { error: insertError } = await supabase.from("videosa").insert([{
+      title: title || "بدون عنوان",
+      url,
+      likes_count: 0,
+      liked_by: JSON.stringify([])
+    }]);
+
+    if (insertError) return res.status(500).json({ error: insertError.message });
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
+// تشغيل السيرفر
 app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`✅ Server is running on port ${PORT}`);
 });
