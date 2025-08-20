@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 // إعدادات Supabase
 const supabaseUrl = "https://ikpijsdqmavklpgunumm.supabase.co";
-const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrcGlqc...";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlrcGlqc2RxbWF2a2xwZ3VudW1tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzNzUzODgsImV4cCI6MjA3MDk1MTM4OH0.uC6t3PgZYOMQuWxFQrFy9aXIR4um0X1Lsf8SkplhZlc";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Middlewares
